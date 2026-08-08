@@ -20,6 +20,8 @@
 #include "visual/visualisation.h"
 #include "main_window.h"
 
+#include <iomanip>
+
 MainWindow::MainWindow() {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(screenWidth, screenHeight, "easyFEM - Pipeline UI");
@@ -289,9 +291,31 @@ void MainWindow::DrawTabSolver() {
         ImGui::RadioButton("Implicit", &current_solver, 1);
         ImGui::RadioButton("Crank-Nicolson", &current_solver, 2);
 
-        if (current_solver == 0) solver_type_str = "explicit_euler";
-        else if (current_solver == 1) solver_type_str = "implicit_euler";
-        else solver_type_str = "crank-nicolson";
+        if (current_solver == 0) {
+            solver_type_str = "explicit_euler";
+
+            if (ImGui::Button("Check stability") && mesh_created) {
+                // Build the FEM matrices so the limit reflects element shape AND
+                // convection BCs, not just mesh geometry.
+                save_fem_data(mesh, configuration);
+                Fem::Solution probe("Data/fem_data.txt", "explicit_euler");
+                const double dt_max = probe.stability_dt_max();
+
+                std::cout << "Max stable dt = " << std::setprecision(5) << dt_max
+                          << " (using dt = " << configuration.time_step << ")\n";
+                if (configuration.time_step > dt_max) {
+                    std::cout << "[WARNING] dt exceeds stability limit. Simulation will be UNSTABLE!\n";
+                }
+            }
+        }
+
+        else if (current_solver == 1) {
+            solver_type_str = "implicit_euler";
+        }
+        else {
+            solver_type_str = "crank-nicolson";
+        }
+
     }
     else {
         solver_type_str = "stationary";

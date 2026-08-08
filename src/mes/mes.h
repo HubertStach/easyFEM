@@ -185,9 +185,6 @@ struct Solution{
 
     std::string solver_type;
 
-    double x_char = 1000.0;
-    void calc_x_char();
-
     void apply_dirichlet_symmetric(Matrix &A, std::vector<double> &B);
 
     explicit Solution(std::string filename, const std::string& solver_type): Global_H(3,3), Global_C(3,3), Global_P(3,1)
@@ -199,8 +196,6 @@ struct Solution{
         this->triangles = load_triangles(filepath);
         this->quads = load_quad_elements(filepath);
         this->nodes = load_bc(filepath, this->nodes);
-
-        this->calc_x_char();
 
         print_config(this->conf);
 
@@ -263,6 +258,11 @@ struct Solution{
 
     void solve(bool write_vtu, bool print_conf);
     void solve_stationary(bool write_vtu);
+
+    // Max stable dt for explicit Euler, from the assembled matrices (Gershgorin
+    // bound on C^-1 H). Accounts for element shape AND convection BCs, unlike a
+    // purely geometric CFL estimate.
+    double stability_dt_max();
 };
 }
 

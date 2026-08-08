@@ -6,6 +6,8 @@
 #include <sstream>
 #include <chrono>
 #include <algorithm>
+#include <limits>
+#include <cmath>
 
 #include "mes.h"
 #include "../solver/cholesky_ldl.h"
@@ -761,47 +763,52 @@ namespace Fem {
         out.close();
     }
 
-    void Solution::calc_x_char() {
-        auto length = [&](const int n_1, const int n_2, const std::vector<Node> &nodes) {
-            return sqrt(pow(nodes[n_2].x-nodes[n_1].x, 2) + pow(nodes[n_2].y-nodes[n_1].y, 2));
-        };
-
-        double temp_x = std::numeric_limits<double>::max();
-
-        for (Triangle& it: this->triangles) {
-            double l1 = length(it.node_ids[0], it.node_ids[1], this->nodes);
-            double l2 = length(it.node_ids[1], it.node_ids[2], this->nodes);
-            double l3 = length(it.node_ids[2], it.node_ids[0], this->nodes);
-
-            temp_x = std::min({temp_x, l1, l2, l3});
-        }
-        this->x_char = temp_x;
-    }
-
-    void Solution::apply_dirichlet_symmetric(Matrix &A, std::vector<double> &B) {
+    void Solution::apply_dirichlet_symmetric(Matrix &H, std::vector<double> &P) {
         for (int d = 0; d < conf.node_number; ++d) {
             if (nodes[d].bc.exist && nodes[d].bc.dir_temp != 0.0) {
                 double T_presc = nodes[d].bc.dir_temp;
 
                 for (int i = 0; i < conf.node_number; ++i) {
                     if (i != d) {
-                        B[i] -= A(i,d) * T_presc;
-                        A(i,d) = 0.0;
-                        A(d,i) = 0.0;
+                        P[i] -= H(i,d) * T_presc;
+                        H(i,d) = 0.0;
+                        H(d,i) = 0.0;
                     }
                 }
 
                 for (int j = 0; j < conf.node_number; ++j) {
                     if (j != d) {
-                        A(d,j) = 0.0;
+                        H(d,j) = 0.0;
                     }
                 }
-                A(d,d) = 1.0;
-                B[d] = T_presc;
+
+                P[d] = +H(d,d) * T_presc;
             }
         }
     }
 
+    double Solution::stability_dt_max() {
+        double dt_max = std::numeric_limits<double>::max();
+        for (int j = 0; j < conf.node_number; j++) {
+            // Dirichlet and disconnected nodes are held/overwritten, not integrated.
+            if (nodes[j].bc.exist && nodes[j].bc.dir_temp != 0.0) {
+                continue;
+            }
+
+            if (Global_C(j,j) == 0.0) {
+                continue;
+            }
+
+            double row_abs = 0.0;
+            for (int k = 0; k < conf.node_number; k++) {
+                row_abs += std::abs(Global_H(j,k));
+            }
+            if (row_abs == 0.0) continue;
+
+            dt_max = std::min(dt_max, 2.0 * Global_C(j,j) / row_abs);
+        }
+        return dt_max;
+    }
 
     void Solution::solve(const bool write_vtu, bool print_conf) {
 
@@ -861,16 +868,15 @@ namespace Fem {
         }
 
         else if (this->solver_type == "explicit_euler") {
-            const double alpha_c = conf.conductivity / (conf.density * conf.specific_heat);
-            const double cfl = (alpha_c * conf.time_step) / pow(this->x_char, 2);
-
-            std::cout << "Beginning time integration (Explicit Euler)\n";
-            std::cout << "Calculated Fourier Number (CFL): " << std::setprecision(5) << cfl << "\n";
-            if (cfl >= 0.25) {
-                std::cout << "[WARNING] CFL >= 0.25. Simulation will likely be UNSTABLE!\n";
+            const double dt_max = stability_dt_max();
+            std::cout << "Max stable dt = " << dt_max << " (using dt = " << conf.time_step << ")\n";
+            if (conf.time_step > dt_max) {
+                std::cout << "[WARNING] dt exceeds stability limit. Simulation will be UNSTABLE!\n";
             }
 
-            for(int i = conf.time_step; i <= conf.total_time; i += conf.time_step) {
+            std::cout << "Beginning time integration (Explicit Euler)\n";
+            int steps = static_cast<int>(conf.total_time / conf.time_step);
+            for(int i = 0; i <= steps; i++) {
                 for (int j = 0; j < conf.node_number; j++) {
 
                     if (nodes[j].bc.exist && nodes[j].bc.dir_temp != 0.0) {

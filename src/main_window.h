@@ -4,6 +4,7 @@
 #include "imgui.h"
 #include <vector>
 #include <string>
+#include <future>
 
 #include "mes/mes.h"
 #include "mesh/geometry.h"
@@ -32,6 +33,8 @@ struct MainWindow {
     Visualisation vis;
     Fem::GlobalData configuration;
     bool loading_visual = false;
+    std::future<void> fem_future;
+    bool solving = false;
     bool auto_play = false;
     bool display_nodes = true;
     bool display_triangles = true;

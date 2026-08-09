@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <iostream>
 #include <thread>
+#include <chrono>
 
 #include "app_ui/axis.h"
 #include "app_ui/grid.h"
@@ -337,14 +338,21 @@ void MainWindow::DrawTabSolver() {
         ImGui::InputDouble("J/kg*K", &configuration.specific_heat);
     }
 
-    if (ImGui::Button("RUN SIMULATION", ImVec2(-1, 40))) {
-        if (mesh_created) {
-            save_fem_data(mesh, configuration);
-            std::thread fem_thread(fem_solve, solver_type_str);
-            fem_thread.join();
-            vis.init_visualisation(mesh);
+    if (solving) {
+        ImGui::TextDisabled("Solving...");
+        if (fem_future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            fem_future.get();                 // rethrows solver exceptions on main thread
+            vis.init_visualisation(mesh);      // reads VTU; kept on main thread
             problem_solved = true;
             loading_visual = true;
+            solving = false;
+        }
+    }
+    else if (ImGui::Button("RUN SIMULATION", ImVec2(-1, 40))) {
+        if (mesh_created) {
+            save_fem_data(mesh, configuration);
+            fem_future = std::async(std::launch::async, fem_solve, solver_type_str);
+            solving = true;
         }
     }
 }
